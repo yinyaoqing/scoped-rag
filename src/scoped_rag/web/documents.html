@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}文件與授權 — scoped-rag{% endblock %}
+{% block body %}
+<section class="card">
+  <h2>上傳文件</h2>
+  <form method="post" action="/upload" enctype="multipart/form-data">
+    <div class="row">
+      <div><label for="file">檔案（txt／md／pdf／docx）</label><input id="file" type="file" name="file" required></div>
+      <div class="grow"><label for="title">標題（留空用檔名）</label><input id="title" name="title" style="width:100%"></div>
+      <div>
+        <label for="visibility">可見範圍</label>
+        <select id="visibility" name="visibility">
+          <option value="restricted">restricted（僅授權對象）</option>
+          <option value="org">org（全組織可讀）</option>
+        </select>
+      </div>
+      <div class="grow">
+        <label for="grants">授權對象（逗號分隔的 principal id）</label>
+        <input id="grants" name="grants" style="width:100%" placeholder="g:manager, u:alice">
+      </div>
+      <button type="submit">上傳並建索引</button>
+    </div>
+  </form>
+  <p class="note" style="margin-top:10px">
+    可用的 principal：{% for pid, kind, name in principals %}<code>{{ pid }}</code>{% if not loop.last %}、{% endif %}{% endfor %}
+  </p>
+</section>
+
+<section class="card">
+  <h2>現有文件（{{ rows|length }}）</h2>
+  <table>
+    <thead><tr><th>標題</th><th>id</th><th>可見範圍</th><th>授權對象</th><th>來源</th></tr></thead>
+    <tbody>
+      {% for doc, grants in rows %}
+      <tr>
+        <td>{{ doc.title }}</td>
+        <td><code>{{ doc.id }}</code></td>
+        <td>
+          {% if doc.visibility == 'org' %}<span class="pill">org</span>
+          {% else %}<span class="pill warn">restricted</span>{% endif %}
+        </td>
+        <td>{% for g in grants %}<code>{{ g }}</code>{% if not loop.last %}、{% endif %}{% endfor %}
+            {% if not grants and doc.visibility != 'org' %}<span class="note">無人可讀</span>{% endif %}</td>
+        <td class="note">{{ doc.source or '—' }}</td>
+      </tr>
+      {% endfor %}
+      {% if not rows %}<tr><td colspan="5" class="note">還沒有文件。先跑 <code>scoped-rag demo</code> 載入範例語料。</td></tr>{% endif %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

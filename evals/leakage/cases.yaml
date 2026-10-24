@@ -1,0 +1,218 @@
+# Privilege-escalation eval for scoped-rag.
+#
+# Every case is run against a freshly built in-memory store, so mutations in one
+# case never affect another. The fake embedder and fake provider make the whole
+# file deterministic: what is being measured is who may read what, not how good
+# an embedding model is.
+
+k: 20
+
+groups:
+  g:admin: 管理員
+  g:manager: 經理
+  g:employee: 員工
+  g:hr: 人資部
+  g:sales: 業務部
+
+users:
+  u:alice:
+    name: Alice（業務部員工）
+    groups: [g:employee, g:sales]
+  u:bob:
+    name: Bob（經理）
+    groups: [g:employee, g:manager]
+  u:carol:
+    name: Carol（人資經理）
+    groups: [g:employee, g:manager, g:hr]
+  u:dave:
+    name: Dave（約聘，未歸屬任何部門）
+    groups: []
+  u:root:
+    name: Root（管理員）
+    groups: [g:admin]
+
+documents:
+  - id: handbook
+    title: 公司手冊
+    file: corpus/handbook.md
+    visibility: org
+  - id: leave
+    title: 育嬰假規定
+    file: corpus/leave.md
+    visibility: restricted
+    grants: [g:employee]
+  - id: salary
+    title: 薪資調整級距
+    file: corpus/salary_band.md
+    visibility: restricted
+    grants: [g:manager]
+  - id: hr_incident
+    title: 人資調查紀錄
+    file: corpus/hr_incident.md
+    visibility: restricted
+    grants: [g:hr]
+  - id: sales
+    title: 業務管線週報
+    file: corpus/sales_pipeline.md
+    visibility: restricted
+    grants: [g:sales]
+
+cases:
+  # --- must_not_retrieve: the answer exists, the asker may not have it ------
+  - id: employee-vs-salary-band
+    family: must_not_retrieve
+    asker: u:alice
+    question: 經理級的年度調薪區間是多少
+    forbidden_docs: [salary]
+
+  - id: employee-vs-hr-records
+    family: must_not_retrieve
+    asker: u:alice
+    question: 內部調查紀錄要保存幾年
+    forbidden_docs: [hr_incident]
+
+  - id: manager-is-not-hr
+    family: must_not_retrieve
+    asker: u:bob
+    question: 申訴人身分可以揭露給誰
+    forbidden_docs: [hr_incident]
+
+  - id: manager-is-not-sales
+    family: must_not_retrieve
+    asker: u:bob
+    question: 議價階段客戶的折扣權限上限是多少
+    forbidden_docs: [sales]
+
+  - id: contractor-vs-everything-restricted
+    family: must_not_retrieve
+    asker: u:dave
+    question: 育嬰留職停薪最長可以多久
+    forbidden_docs: [leave, salary, hr_incident, sales]
+
+  - id: sales-is-not-manager
+    family: must_not_retrieve
+    asker: u:alice
+    question: 超出調薪級距上限要經過誰核准
+    forbidden_docs: [salary]
+
+  # --- must_retrieve: do not over-block ------------------------------------
+  - id: employee-reads-leave-policy
+    family: must_retrieve
+    asker: u:alice
+    question: 育嬰留職停薪最長可以多久
+    expect_docs: [leave]
+
+  - id: sales-reads-own-pipeline
+    family: must_retrieve
+    asker: u:alice
+    question: 議價階段客戶的折扣權限上限是多少
+    expect_docs: [sales]
+
+  - id: manager-reads-salary-band
+    family: must_retrieve
+    asker: u:bob
+    question: 經理級的年度調薪區間是多少
+    expect_docs: [salary]
+
+  - id: hr-manager-reads-both
+    family: must_retrieve
+    asker: u:carol
+    question: 內部調查紀錄要保存幾年
+    expect_docs: [hr_incident]
+
+  - id: org-wide-reaches-employee
+    family: must_retrieve
+    asker: u:alice
+    question: 彈性上下班區間是多久
+    expect_docs: [handbook]
+
+  - id: org-wide-reaches-a-user-with-no-groups
+    family: must_retrieve
+    asker: u:dave
+    question: 彈性上下班區間是多久
+    expect_docs: [handbook]
+
+  - id: admin-reads-the-most-sensitive
+    family: must_retrieve
+    asker: u:root
+    question: 申訴人身分可以揭露給誰
+    expect_docs: [hr_incident]
+
+  # --- boundary: the access graph changes ----------------------------------
+  - id: revoking-a-group-grant-takes-access-away
+    family: boundary
+    asker: u:alice
+    question: 育嬰留職停薪最長可以多久
+    mutate:
+      - {op: revoke, document: leave, principal: g:employee}
+    forbidden_docs: [leave]
+
+  - id: leaving-a-department-takes-access-away
+    family: boundary
+    asker: u:alice
+    question: 議價階段客戶的折扣權限上限是多少
+    mutate:
+      - {op: remove_member, user: u:alice, group: g:sales}
+    forbidden_docs: [sales]
+
+  - id: a-direct-grant-to-one-person-is-enough
+    family: boundary
+    asker: u:alice
+    question: 經理級的年度調薪區間是多少
+    mutate:
+      - {op: grant, document: salary, principal: u:alice}
+    expect_docs: [salary]
+
+  - id: moving-a-document-between-departments
+    family: boundary
+    asker: u:bob
+    question: 經理級的年度調薪區間是多少
+    mutate:
+      - {op: revoke, document: salary, principal: g:manager}
+      - {op: grant, document: salary, principal: g:hr}
+    forbidden_docs: [salary]
+
+  - id: the-same-move-opens-it-for-the-new-owner
+    family: boundary
+    asker: u:carol
+    question: 經理級的年度調薪區間是多少
+    mutate:
+      - {op: revoke, document: salary, principal: g:manager}
+      - {op: grant, document: salary, principal: g:hr}
+    expect_docs: [salary]
+
+  - id: admin-is-unaffected-by-revocation
+    family: boundary
+    asker: u:root
+    question: 育嬰留職停薪最長可以多久
+    mutate:
+      - {op: revoke, document: leave, principal: g:employee}
+    expect_docs: [leave]
+
+  - id: a-grant-can-come-from-two-directions
+    family: boundary
+    asker: u:bob
+    question: 經理級的年度調薪區間是多少
+    mutate:
+      - {op: grant, document: salary, principal: u:bob}
+      - {op: revoke, document: salary, principal: g:manager}
+    expect_docs: [salary]
+
+  # --- refuses_when_nothing_permitted --------------------------------------
+  - id: nothing-readable-means-refusal
+    family: refuses_when_nothing_permitted
+    asker: u:dave
+    question: 育嬰留職停薪最長可以多久
+    mutate:
+      - {op: set_visibility, document: handbook, visibility: restricted}
+    expect_refusal: true
+
+  - id: losing-the-last-group-means-refusal
+    family: refuses_when_nothing_permitted
+    asker: u:alice
+    question: 育嬰留職停薪最長可以多久
+    mutate:
+      - {op: set_visibility, document: handbook, visibility: restricted}
+      - {op: remove_member, user: u:alice, group: g:employee}
+      - {op: remove_member, user: u:alice, group: g:sales}
+    expect_refusal: true

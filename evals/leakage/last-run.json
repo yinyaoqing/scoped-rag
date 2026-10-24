@@ -1,0 +1,8 @@
+{
+  "cases": 22,
+  "leak_rate": 0.0,
+  "permitted_recall": 1.0,
+  "refusal_correctness": 1.0,
+  "passed": true,
+  "failures": []
+}

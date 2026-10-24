@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}提問 — scoped-rag{% endblock %}
+{% block body %}
+<section class="card">
+  <h2>以某個身分提問</h2>
+  <form method="post" action="/ask">
+    <div class="row">
+      <div>
+        <label for="who">身分</label>
+        <select id="who" name="who">
+          {% for uid, _kind, name in users %}
+          <option value="{{ uid }}" {% if uid == who %}selected{% endif %}>{{ name }}（{{ uid }}）</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="grow">
+        <label for="question">問題</label>
+        <input id="question" name="question" class="grow" style="width:100%"
+               value="{{ question }}" placeholder="例如：經理級的年度調薪區間是多少">
+      </div>
+      <div>
+        <label for="k">取回上限 k</label>
+        <input id="k" name="k" type="number" min="1" max="50" value="5" style="width:6rem">
+      </div>
+      <button type="submit">提問</button>
+    </div>
+  </form>
+  <p class="note" style="margin-top:10px">
+    目前身分所屬群組：
+    {% if is_admin %}<span class="pill warn">管理員（可讀全部）</span>{% endif %}
+    {% for g in groups %}<span class="pill">{{ g }}</span> {% endfor %}
+    {% if not groups %}<span class="pill warn">未歸屬任何群組</span>{% endif %}
+  </p>
+</section>
+
+{% if answer %}
+<section class="card">
+  <h2>答案</h2>
+  <div class="answer {% if answer.refused %}refused{% endif %}">{{ answer.text }}</div>
+  <h2 style="margin-top:16px">這個身分看得到的來源（{{ answer.retrieved|length }}）</h2>
+  {% if answer.retrieved %}
+  <ul class="sources">
+    {% for h in answer.retrieved %}
+    <li>
+      <strong>{{ h.title }}</strong> <code>{{ h.chunk_id }}</code>
+      距離 {{ "%.3f"|format(h.distance) }}
+      {% if h.chunk_id in answer.citations %}<span class="pill">已引用</span>{% endif %}
+      {% if h not in answer.used %}<span class="pill warn">超出相關門檻</span>{% endif %}
+      <br>{{ h.text }}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="note">沒有任何這個身分有權限讀取的片段。換一個身分問同一個問題，看差異。</p>
+  {% endif %}
+  {% if answer.cost_usd %}<p class="note">本次呼叫成本 US${{ "%.5f"|format(answer.cost_usd) }}</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}
