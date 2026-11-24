@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import sqlite3
 import uuid
@@ -11,6 +12,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from ..terms import term_counts
 from .dialect import POSTGRES, SQLITE, Dialect, cosine_distance
 from .schema import ADMIN_GROUP, ddl
 
@@ -58,6 +60,9 @@ class Store:
             return cls(psycopg.connect(dsn), POSTGRES, dim)
         conn = sqlite3.connect(_sqlite_path(dsn))
         conn.create_function("cosine", 2, cosine_distance, deterministic=True)
+        # SQLite only has ln() when built with its math functions; register it so the
+        # BM25 expression is the same SQL as on PostgreSQL either way.
+        conn.create_function("ln", 1, math.log, deterministic=True)
         return cls(conn, SQLITE, dim)
 
     # --- plumbing ---------------------------------------------------------
@@ -198,8 +203,36 @@ class Store:
                 f"VALUES ({p('id')}, {p('m')}, {p('n')}, {p('v')})",
                 {"id": cid, "m": embedder, "n": len(vec), "v": self.d.encode(list(vec))},
             )
+            self._index_terms(cid, chunk.text)
             ids.append(cid)
         return ids
+
+    def _index_terms(self, chunk_id: str, text: str) -> None:
+        p = self.d.ph
+        for term, tf in term_counts(text).items():
+            self.execute(
+                "INSERT INTO chunk_terms (chunk_id, term, tf) "
+                f"VALUES ({p('c')}, {p('t')}, {p('n')})",
+                {"c": chunk_id, "t": term, "n": tf},
+            )
+
+    def term_index_ready(self) -> bool:
+        """False for a database from before the keyword leg: the table is missing, or
+        there are chunks and no terms for them."""
+        if not self.execute(self.d.table_exists("chunk_terms")):
+            return False
+        if self.execute("SELECT 1 FROM chunk_terms LIMIT 1"):
+            return True
+        return not self.execute("SELECT 1 FROM chunks LIMIT 1")
+
+    def reindex_terms(self) -> int:
+        """Rebuild the term index from chunk text. For databases created before the
+        keyword leg existed, and after a change to `terms.terms`."""
+        self.execute("DELETE FROM chunk_terms")
+        rows = self.execute("SELECT id, text FROM chunks ORDER BY id")
+        for chunk_id, text in rows:
+            self._index_terms(chunk_id, text)
+        return len(rows)
 
     def grant(self, doc_id: str, principal_id: str) -> None:
         p = self.d.ph

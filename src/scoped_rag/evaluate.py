@@ -23,6 +23,7 @@ from .answer.generate import answer_question
 from .answer.providers import FakeProvider
 from .embed.fake import FakeEmbedder
 from .ingest.chunk import chunk_text
+from .rerank.fake import FakeReranker
 from .store.repo import Store, seed_roles
 
 
@@ -37,6 +38,8 @@ class CaseResult:
 @dataclass
 class Report:
     cases: int = 0
+    mode: str = "vector"
+    rerank: bool = False
     leak_rate: float = 0.0
     permitted_recall: float = 0.0
     refusal_correctness: float = 0.0
@@ -46,6 +49,8 @@ class Report:
     def as_dict(self) -> dict[str, Any]:
         return {
             "cases": self.cases,
+            "mode": self.mode,
+            "rerank": self.rerank,
             "leak_rate": round(self.leak_rate, 4),
             "permitted_recall": round(self.permitted_recall, 4),
             "refusal_correctness": round(self.refusal_correctness, 4),
@@ -58,7 +63,16 @@ class Report:
         }
 
 
-def _build(spec: dict[str, Any], root: Path, embedder: FakeEmbedder) -> Store:
+def _build(
+    spec: dict[str, Any],
+    root: Path,
+    embedder: Any,
+    *,
+    size: int = 120,
+    overlap: int = 24,
+) -> Store:
+    """A fresh in-memory store from an eval spec. A document's text comes from `body`
+    when given inline, otherwise from `file`."""
     store = Store.open("sqlite://:memory:", dim=embedder.dim)
     store.init_schema()
     seed_roles(store)
@@ -69,14 +83,14 @@ def _build(spec: dict[str, Any], root: Path, embedder: FakeEmbedder) -> Store:
         for gid in info.get("groups") or []:
             store.add_member(uid, gid)
     for doc in spec.get("documents") or []:
-        body = (root / doc["file"]).read_text(encoding="utf-8")
+        body = doc.get("body") or (root / doc["file"]).read_text(encoding="utf-8")
         store.add_document(
             doc["title"],
-            source=doc["file"],
+            source=doc.get("file"),
             visibility=doc.get("visibility", "restricted"),
             doc_id=doc["id"],
         )
-        specs = chunk_text(body, size=120, overlap=24)
+        specs = chunk_text(body, size=size, overlap=overlap)
         store.add_chunks(
             doc["id"], specs, embedder.embed_documents([c.text for c in specs]), embedder.name
         )
@@ -104,15 +118,26 @@ def _mutate(store: Store, steps: list[dict[str, Any]]) -> None:
     store.commit()
 
 
-def run(cases_path: str | Path = "evals/leakage/cases.yaml") -> Report:
+def run(
+    cases_path: str | Path = "evals/leakage/cases.yaml",
+    *,
+    mode: str = "vector",
+    rerank: bool = False,
+) -> Report:
+    """Run every case through one retrieval configuration.
+
+    The guarantee has to hold for each of them, so the same cases are run for the
+    vector leg, the keyword leg, their fusion, and each of those with a re-ranker.
+    """
     path = Path(cases_path)
     spec = yaml.safe_load(path.read_text(encoding="utf-8"))
     root = path.parent
     k = int(spec.get("k", 20))
     embedder = FakeEmbedder(dim=64)
     provider = FakeProvider()
+    reranker = FakeReranker() if rerank else None
 
-    report = Report()
+    report = Report(mode=mode, rerank=rerank)
     forbidden_checks = forbidden_clean = 0
     expected_checks = expected_hit = 0
     refusal_checks = refusal_right = 0
@@ -129,6 +154,8 @@ def run(cases_path: str | Path = "evals/leakage/cases.yaml") -> Report:
             asker=case["asker"],
             question=case["question"],
             k=k,
+            mode=mode,
+            reranker=reranker,
         )
         retrieved_docs = {h.document_id for h in result.retrieved}
         all_retrieved = set(result.retrieved_chunk_ids)

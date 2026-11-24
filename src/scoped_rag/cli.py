@@ -1,4 +1,4 @@
-"""Command line: init, demo, ingest, ask, eval, serve.
+"""Command line: init, demo, ingest, reindex, ask, eval, eval-quality, serve.
 
 The Windows console is cp950, so stdout is reconfigured to UTF-8 with replacement
 rather than letting a Chinese document title raise UnicodeEncodeError mid-run.
@@ -18,6 +18,7 @@ from .evaluate import run as run_eval
 from .evaluate import write_report
 from .ingest.chunk import chunk_text
 from .ingest.parse import parse_many
+from .retrieve.search import MODES, TermIndexMissing
 from .store.repo import Store, seed_roles
 
 DEMO_CASES = Path("evals/leakage/cases.yaml")
@@ -37,6 +38,18 @@ def _embedder(kind: str, dim: int):
 
         return LocalEmbedder()
     return FakeEmbedder(dim=dim)
+
+
+def _reranker(kind: str):
+    if kind == "local":
+        from .rerank.local import LocalReranker
+
+        return LocalReranker()
+    if kind == "fake":
+        from .rerank.fake import FakeReranker
+
+        return FakeReranker()
+    return None
 
 
 def _provider(kind: str) -> LlmProvider:
@@ -126,9 +139,19 @@ def cmd_ingest(args) -> int:
     return 1 if bad and not ok else 0
 
 
+def cmd_reindex(args) -> int:
+    store, _ = _open(args, init=True)
+    count = store.reindex_terms()
+    store.commit()
+    print(f"rebuilt the term index for {count} chunks")
+    store.close()
+    return 0
+
+
 def cmd_ask(args) -> int:
     store, embedder = _open(args)
     provider = _provider(args.provider)
+    reranker = _reranker(args.rerank)
     questions = [args.question] if args.question else []
     if args.questions_file:
         questions += [
@@ -153,6 +176,9 @@ def cmd_ask(args) -> int:
             question=question,
             k=args.k,
             max_distance=args.max_distance,
+            mode=args.mode,
+            reranker=reranker,
+            min_rerank=args.min_rerank,
         )
         spent += result.cost_usd
         print(f"\nQ ({args.as_user}): {question}")
@@ -170,11 +196,28 @@ def cmd_ask(args) -> int:
 
 
 def cmd_eval(args) -> int:
-    report = run_eval(args.cases)
+    report = run_eval(args.cases, mode=args.mode, rerank=args.rerank)
     if args.report:
         write_report(report, args.report)
     print(json.dumps(report.as_dict(), ensure_ascii=False, indent=2))
     return 0 if report.passed else 1
+
+
+def cmd_eval_quality(args) -> int:
+    from . import quality
+
+    embedder = _embedder(args.embedder, args.dim)
+    report = quality.run(args.set, embedder=embedder, reranker=_reranker(args.rerank))
+    if args.report:
+        quality.write_report(report, args.report)
+    print(
+        f"{report['documents']} documents, {report['chunks']} chunks, "
+        f"{report['queries']} queries; embedder {report['embedder']}, "
+        f"re-ranker {report['reranker']}\n"
+    )
+    print(quality.format_table(report))
+    leaked = any(c["leaks"] for c in report["configs"].values())
+    return 1 if leaked else 0
 
 
 def cmd_serve(args) -> int:
@@ -183,7 +226,13 @@ def cmd_serve(args) -> int:
     from .api.app import build_app
 
     uvicorn.run(
-        build_app(dsn=args.dsn, embedder_kind=args.embedder, provider_kind=args.provider),
+        build_app(
+            dsn=args.dsn,
+            embedder_kind=args.embedder,
+            provider_kind=args.provider,
+            mode=args.mode,
+            reranker=_reranker(args.rerank),
+        ),
         host=args.host,
         port=args.port,
         log_level="info",
@@ -216,6 +265,9 @@ def main(argv: list[str] | None = None) -> int:
     p_ing.add_argument("--overlap", type=int, default=60)
     p_ing.set_defaults(func=cmd_ingest)
 
+    p_re = sub.add_parser("reindex", help="rebuild the keyword term index from chunk text")
+    p_re.set_defaults(func=cmd_reindex)
+
     p_ask = sub.add_parser("ask", help="ask as a given user")
     p_ask.add_argument("question", nargs="?")
     p_ask.add_argument("--as", dest="as_user", required=True, help="principal id, e.g. u:alice")
@@ -224,21 +276,43 @@ def main(argv: list[str] | None = None) -> int:
     p_ask.add_argument("--max-distance", type=float, default=DEFAULT_MAX_DISTANCE)
     p_ask.add_argument("--provider", choices=["fake", "claude"], default="fake")
     p_ask.add_argument("--max-cost", type=float, default=None, help="USD budget for this run")
+    p_ask.add_argument("--mode", choices=MODES, default="vector")
+    p_ask.add_argument("--rerank", choices=["none", "fake", "local"], default="none")
+    p_ask.add_argument(
+        "--min-rerank",
+        type=float,
+        default=None,
+        help="with a re-ranker: gate on its score instead of --max-distance",
+    )
     p_ask.set_defaults(func=cmd_ask)
 
     p_eval = sub.add_parser("eval", help="run the privilege-escalation eval")
     p_eval.add_argument("--cases", default=str(DEMO_CASES))
     p_eval.add_argument("--report", default=None)
+    p_eval.add_argument("--mode", choices=MODES, default="vector")
+    p_eval.add_argument("--rerank", action="store_true", help="add the fake re-ranker")
     p_eval.set_defaults(func=cmd_eval)
+
+    p_q = sub.add_parser("eval-quality", help="compare retrieval configurations on a labelled set")
+    p_q.add_argument("--set", default="evals/retrieval/set.yaml")
+    p_q.add_argument("--rerank", choices=["none", "fake", "local"], default="none")
+    p_q.add_argument("--report", default=None)
+    p_q.set_defaults(func=cmd_eval_quality)
 
     p_serve = sub.add_parser("serve", help="run the web UI")
     p_serve.add_argument("--host", default="127.0.0.1")
     p_serve.add_argument("--port", type=int, default=8000)
     p_serve.add_argument("--provider", choices=["fake", "claude"], default="fake")
+    p_serve.add_argument("--mode", choices=MODES, default="vector")
+    p_serve.add_argument("--rerank", choices=["none", "fake", "local"], default="none")
     p_serve.set_defaults(func=cmd_serve)
 
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except TermIndexMissing as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":  # pragma: no cover

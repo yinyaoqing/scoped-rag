@@ -1,0 +1,428 @@
+# Retrieval-quality eval for scoped-rag.
+#
+# The leakage eval next door asks "did a forbidden chunk come back". This one asks
+# "did the right chunk come back, and how high". It is a small synthetic set: a
+# fictional company's internal documents and 46 questions, both written by the
+# project's author for this purpose. Treat the numbers as a comparison between
+# retrieval configurations on this set, not as a benchmark.
+#
+# Query types, chosen because each is where one leg is expected to be weak:
+#   identifier  an exact code, form number or acronym (hard for an embedding model)
+#   paraphrase  everyday wording that shares few words with the document (hard for keywords)
+#   plain       wording close to the document
+#   scoped      a near-duplicate document exists for another audience; the right one
+#               depends on who is asking
+#
+# A chunk is relevant when it belongs to `doc` and contains the string `contains`.
+# Labelling by content rather than chunk id keeps the labels valid when the
+# chunking parameters change.
+
+k: 10
+# How many first-stage rows the re-ranker is given, and how deep each leg goes before
+# fusion. Kept at k on purpose: one asker can read roughly 20 to 40 of the 51 chunks,
+# so a larger pool hands the re-ranker nearly everything readable and the first stage
+# stops mattering. At 10 the first stage has to earn its place.
+rerank_pool: 10
+chunk_size: 160
+chunk_overlap: 30
+
+groups:
+  g:admin: 管理員
+  g:manager: 經理
+  g:employee: 員工
+  g:hr: 人資部
+  g:sales: 業務部
+  g:eng: 工程部
+  g:finance: 財務部
+
+users:
+  u:alice:
+    name: Alice（業務部員工）
+    groups: [g:employee, g:sales]
+  u:bob:
+    name: Bob（經理）
+    groups: [g:employee, g:manager]
+  u:carol:
+    name: Carol（人資經理）
+    groups: [g:employee, g:manager, g:hr]
+  u:erin:
+    name: Erin（工程師）
+    groups: [g:employee, g:eng]
+
+documents:
+  - id: it-vpn
+    title: 遠端連線與 VPN 使用規範
+    grants: [g:employee]
+    body: |
+      遠端連線與 VPN 使用規範
+
+      在辦公室以外存取內部系統，一律經由公司 VPN。用戶端程式為 GlobalLink，安裝檔放在軟體中心。
+      登入時除了帳號密碼，還要通過多因素驗證，驗證器請使用公司核發的手機應用程式。
+      連線閒置超過 30 分鐘會自動中斷，需要重新驗證。同一帳號最多同時維持 2 條連線。
+      常見錯誤碼：VPN-809 表示用戶端憑證已過期，請到 IT 服務台申請重發，當日可完成。
+      VPN-812 表示這台裝置尚未註冊為公司受管裝置，個人電腦不得連線，請改用公司筆電。
+      在公共無線網路上使用 VPN 時，不得同時開啟檔案分享功能。
+
+  - id: it-password
+    title: 密碼與帳號安全政策
+    grants: [g:employee]
+    body: |
+      密碼與帳號安全政策
+
+      密碼長度至少 14 個字元，必須同時包含英文字母與數字，不得與前 5 次使用過的密碼相同。
+      密碼每 180 天必須更換一次，到期前 14 天系統會寄出提醒信。
+      連續輸入錯誤 5 次，帳號會鎖定 15 分鐘，時間到自動解除，不需要聯絡服務台。
+      忘記密碼時可使用自助重設入口 SSPR，以手機驗證器確認身分後自行設定新密碼。
+      公司提供密碼管理員，請勿把密碼寫在便條紙或存放在未加密的檔案。
+      共用帳號原則上禁止；確有需要者須由部門主管向資安小組申請並每季覆核。
+
+  - id: it-device
+    title: 公司筆記型電腦管理辦法
+    grants: [g:employee]
+    body: |
+      公司筆記型電腦管理辦法
+
+      每台筆電底部貼有資產標籤，請勿撕除。筆電啟用全磁碟加密，不得自行關閉。
+      設備遺失或遭竊時，必須在 4 小時內通報 IT 服務台與直屬主管，IT 會遠端鎖定並清除資料。
+      在國外遺失者另須取得當地警方的報案證明，回國後交給總務。
+      設備故障或需要更換時，填寫表單 IT-117，一般在 3 個工作天內提供替代機。
+      筆電的汰換週期為 4 年，到期由 IT 主動通知換機，舊機資料由 IT 協助移轉。
+      不得在公司筆電上安裝未經核准的作業系統或停用端點防護軟體。
+
+  - id: it-software
+    title: 軟體安裝與授權申請
+    grants: [g:employee]
+    body: |
+      軟體安裝與授權申請
+
+      軟體中心列出的白名單軟體可以自助安裝，不需要另外申請。
+      要安裝非白名單軟體時，填寫表單 IT-122，說明用途、廠商與是否會處理客戶資料。
+      資安小組的審查時間為 7 個工作天，審查通過後由 IT 代為安裝。
+      採用 GPL 等具感染性的開源授權元件，必須先經法務確認才能納入產品程式碼。
+      付費授權以年度為單位續約，部門助理每年 11 月盤點一次使用人數。
+      瀏覽器擴充功能同樣適用白名單，未列入者會在下次裝置檢查時被移除。
+
+  - id: hr-annual-leave
+    title: 特別休假辦法
+    grants: [g:employee]
+    body: |
+      特別休假辦法
+
+      到職滿 6 個月給予 3 天特別休假，滿 1 年給予 7 天，滿 2 年給予 10 天，之後依法令逐年增加。
+      請特休要在請假系統提出，並至少提前 3 個工作天送出，連續請 5 天以上需提前 2 週。
+      當年度沒有休完的天數可以遞延到次年 3 月底，逾期未休者折算工資發給。
+      主管不得無故拒絕特休申請，但可因專案排程與同仁協調日期。
+      到職未滿 6 個月的同仁沒有特休，可以申請無薪事假。
+
+  - id: hr-sick-leave
+    title: 病假與生理假規定
+    grants: [g:employee]
+    body: |
+      病假與生理假規定
+
+      普通傷病假一年以 30 天為限，期間工資折半發給。
+      連續請病假 3 天以上，銷假時必須附上醫療院所開立的診斷證明；未滿 3 天者以就醫收據即可。
+      住院的日數另計，兩年內合計不得超過 1 年。
+      生理假每月得請 1 天，全年未超過 3 天的部分不併入病假計算。
+      臨時身體不適無法事先請假時，請在當日上午 10 點前以訊息告知主管，事後補登系統。
+
+  - id: hr-remote-work
+    title: 遠距工作辦法
+    grants: [g:employee]
+    body: |
+      遠距工作辦法
+
+      正式員工每週最多可遠距工作 3 天，實際日期與主管約定後登記在團隊行事曆。
+      遠距工作日的核心時段為上午 10 點到下午 4 點，這段時間必須可以即時聯繫。
+      在海外遠距工作超過 14 天，會牽涉當地稅務與勞動法規，必須事先填寫表單 HR-330，
+      由人資與稅務顧問審查，審查約需 10 個工作天；未經核准不得自行出境工作。
+      遠距工作的設備與網路費用由員工自行負擔，公司另提供每月 500 元的補助。
+      試用期內的同仁原則上不適用遠距工作。
+
+  - id: hr-performance
+    title: 績效考核辦法
+    grants: [g:employee]
+    body: |
+      績效考核辦法
+
+      績效考核每半年進行一次，分別在 6 月與 12 月。
+      流程為員工自評、主管評核、校準會議三個階段，結果由主管以一對一面談告知。
+      考核等第分為 A、B、C、D 四級，等第會影響當期獎金與下年度調薪。
+      對考核結果有異議者，可在收到結果後 10 個工作天內向人資提出申訴，
+      人資會在 15 個工作天內安排複核並書面回覆。
+      到職未滿 3 個月的同仁不參加當期考核。
+
+  - id: hr-performance-calibration
+    title: 校準會議主管指引
+    grants: [g:manager]
+    body: |
+      校準會議主管指引
+
+      本文件僅供主管參考，不得轉寄給非主管同仁。
+      校準會議由同一事業單位的主管共同參加，目的是讓各團隊的考核等第標準一致。
+      每個單位評為 A 等的人數上限是 15%，超過者須在會議中逐一說明理由。
+      評為 D 等的同仁必須啟動績效改善計畫 PIP，期間 90 天，由主管每兩週追蹤一次。
+      考核等第與調薪幅度連動：A 等對應級距上緣，C 等原則上不調薪。
+      會議紀錄由人資保管，主管不得自行留存副本。
+
+  - id: hr-onboarding
+    title: 新進人員報到指南
+    grants: [g:employee]
+    body: |
+      新進人員報到指南
+
+      報到第一天向 IT 領取筆電與門禁卡，並由人資說明差勤與薪資作業。
+      第一週內必須完成資訊安全與個人資料保護兩門線上訓練，未完成者帳號權限會受限。
+      試用期為 3 個月，期滿前由主管填寫試用評核。
+      每位新人會安排一位夥伴 buddy，負責帶領熟悉團隊流程與環境。
+      到職第 30、60、90 天各有一次與主管的面談，確認適應狀況與期待。
+
+  - id: hr-offboarding
+    title: 離職作業程序
+    grants: [g:hr]
+    body: |
+      離職作業程序
+
+      人資收到離職申請後建立表單 HR-410，通知 IT、財務與總務同步辦理。
+      員工的所有帳號在最後工作日 18:00 停用，信箱保留 30 天後刪除。
+      公司設備須在最後工作日後 3 日內歸還，逾期由最後一期薪資扣抵。
+      人資在離職前一週安排離職面談，紀錄僅供人資內部分析。
+      簽有競業條款者，人資須在離職當日以書面再次告知期間與補償金額。
+
+  - id: fin-expense
+    title: 費用報銷辦法
+    grants: [g:employee]
+    body: |
+      費用報銷辦法
+
+      因公支出的費用以表單 FIN-204 申請報銷，並附上發票或收據正本。
+      發票日期起 60 天內必須送出申請，逾期不予受理。
+      單筆金額超過 5,000 元的支出，需要直屬主管事前核准。
+      搭乘計程車的費用可以報銷，但必須在表單填寫起訖地點與事由，深夜加班返家不受此限。
+      餐費報銷以每人每餐 600 元為上限，酒類不得報銷。
+      財務在每月 5 日與 20 日撥款，款項匯入薪資帳戶。
+
+  - id: fin-travel
+    title: 差旅標準（一般職級）
+    grants: [g:employee]
+    body: |
+      差旅標準（一般職級）
+
+      出差前須以表單 FIN-210 提出申請，並在出發前 7 天送出，臨時出差由主管以訊息核准後補件。
+      國內出差的住宿費上限為每晚 3,200 元，國外依城市分級另訂。
+      機票一律訂經濟艙，並以出發日前 14 天訂購為原則。
+      日支費為國內每日 800 元、國外每日 60 美元，用於餐費與市內交通，不必檢附單據。
+      出差期間的洗衣與網路費用在 3 晚以上的行程可以實報實銷。
+
+  - id: fin-travel-exec
+    title: 差旅標準（主管職級）
+    grants: [g:manager]
+    body: |
+      差旅標準（主管職級）
+
+      本標準適用於經理級以上人員，出差申請同樣使用表單 FIN-210。
+      國內出差的住宿費上限為每晚 5,500 元，國外依城市分級另訂。
+      單程飛行時間超過 6 小時的航段可以訂商務艙，其餘航段訂經濟艙。
+      日支費為國內每日 1,200 元、國外每日 90 美元，用於餐費與市內交通，不必檢附單據。
+      招待客戶的餐費另依交際費辦法辦理，不計入日支費。
+
+  - id: fin-procurement
+    title: 採購作業辦法
+    grants: [g:employee]
+    body: |
+      採購作業辦法
+
+      採購金額在 3 萬元以下者，取得單一廠商報價即可辦理。
+      金額在 3 萬元到 30 萬元之間者，必須取得三家廠商的比價資料。
+      金額超過 30 萬元者，須提交採購委員會以招標方式辦理。
+      請購一律填寫表單 FIN-305，註明成本中心與預算科目。
+      新增供應商需要建立供應商代碼，財務審核約需 5 個工作天，請提早申請。
+      不得把同一筆採購拆成多筆以規避比價門檻。
+
+  - id: fin-budget
+    title: 年度預算編列與追加
+    grants: [g:finance]
+    body: |
+      年度預算編列與追加
+
+      年度預算作業在每年 10 月啟動，各部門在 11 月中前提交草案。
+      年度中追加預算超過原核定金額 10% 者，須經財務長核准。
+      所有支出必須歸屬到成本中心，代碼以 CC- 開頭加四位數字。
+      月結在每月第 3 個工作天完成，逾期入帳的費用歸入次月。
+      預算執行率低於 60% 的部門，在下年度編列時須說明原因。
+
+  - id: eng-incident
+    title: 事故應變流程
+    grants: [g:eng]
+    body: |
+      事故應變流程
+
+      事故依影響範圍分級。SEV1 為全站或金流中斷，必須在 15 分鐘內召集應變小組。
+      SEV2 為部分功能異常且沒有替代方案，必須在 1 小時內召集。
+      每次事故指定一位事故指揮官，負責協調與對外溝通，不負責動手修復。
+      事故處理期間，狀態頁每 30 分鐘更新一次，即使沒有新進展也要更新。
+      事故結束後 5 個工作天內完成事後檢討報告，檢討以流程為對象，不追究個人。
+
+  - id: eng-deploy
+    title: 部署規範
+    grants: [g:eng]
+    body: |
+      部署規範
+
+      每週五 15:00 之後到週一 09:00 為部署凍結期，這段時間只允許修復事故的變更。
+      所有變更合併前需要兩位審查者核准，其中一位必須是該服務的負責人。
+      正式環境採金絲雀發布，先放 10% 流量觀察 30 分鐘，指標正常才全量。
+      發布後發現問題時，以 deployctl rollback 回滾到前一個版本，不要在線上直接修改。
+      錯誤碼 DEP-4031 表示資料庫 migration 取得鎖逾時，通常是有長交易未結束，請先確認再重試。
+      資料庫結構變更必須向前相容，欄位刪除要拆成兩次發布。
+
+  - id: eng-oncall
+    title: 值班制度
+    grants: [g:eng]
+    body: |
+      值班制度
+
+      值班以一週為單位輪替，每週三上午交接，交接時要逐項確認未結案的警示。
+      收到警示後的回應時限為 10 分鐘，逾時會自動升級給第二線。
+      值班津貼為平日每日 600 元、假日每日 1,200 元。
+      夜間 23 點到早上 7 點之間實際處理事故者，隔日可以補休半天。
+      值班期間不得飲酒，並須確保可以在 30 分鐘內使用電腦上線。
+
+  - id: eng-api-errors
+    title: 對外 API 錯誤碼對照表
+    grants: [g:eng]
+    body: |
+      對外 API 錯誤碼對照表
+
+      E-4031 表示權限不足，最常見的原因是請求帶的租戶與權杖所屬租戶不一致。
+      E-4290 表示超過速率限制，每個 API 金鑰的上限是每分鐘 120 次請求。
+      E-4092 表示冪等鍵衝突，同一個冪等鍵在 24 小時內被用於不同內容的請求。
+      E-5031 表示上游服務逾時，用戶端可以在 2 秒後重試，最多重試 3 次。
+      錯誤回應一律包含 trace_id，客戶回報問題時請先向對方索取。
+
+  - id: sec-data-classification
+    title: 資料分級與處理規範
+    grants: [g:employee]
+    body: |
+      資料分級與處理規範
+
+      公司資料分為公開、內部、機密、極機密四級，文件建立者負責標示等級。
+      機密等級以上的資料不得存放在個人雲端硬碟或個人信箱，也不得貼入外部的線上工具。
+      極機密資料必須加密存放，並保留存取紀錄至少 2 年。
+      對外寄送機密資料前，須確認收件方已簽署保密協議。
+      資料外洩防護系統會掃描外寄郵件與上傳行為，誤判時可向資安小組申請放行。
+
+  - id: sec-phishing
+    title: 釣魚郵件通報程序
+    grants: [g:employee]
+    body: |
+      釣魚郵件通報程序
+
+      收到可疑郵件時不要回覆，直接按下郵件軟體上的「回報釣魚」按鈕，系統會轉給資安小組。
+      如果已經點了郵件中的連結或開啟附件，必須立即變更密碼，並在 30 分鐘內通知資安小組。
+      已經輸入帳號密碼者，資安會強制登出所有工作階段並檢查信箱的轉寄規則。
+      資安小組每季舉行一次釣魚演練，演練結果只用於訓練，不列入考核。
+      對方自稱主管並要求緊急匯款或購買點數卡，一律以電話另行確認。
+
+  - id: sales-discount
+    title: 報價與折扣權限
+    grants: [g:sales]
+    body: |
+      報價與折扣權限
+
+      業務代表可以自行核定的折扣上限為 10%。
+      業務經理可以核定到 20%，超過 20% 的折扣必須由財務長核准。
+      合約期間超過 3 年的案件，報價前須先經法務審閱條款。
+      報價單的有效期限為 30 天，逾期必須重新報價。
+      以贈送服務時數取代折扣者，換算後同樣計入折扣上限。
+
+  - id: sales-crm
+    title: CRM 紀錄規範
+    grants: [g:sales]
+    body: |
+      CRM 紀錄規範
+
+      商機依進度分為 S1 到 S5 五個階段，階段變更必須有客戶端的具體動作為依據。
+      與客戶的每次往來須在 48 小時內更新到 CRM。
+      商機標記為贏單時，必須附上已簽署的合約檔案。
+      預測類別分為 commit 與 best case，每週一上午由業務經理檢視。
+      超過 60 天沒有任何紀錄的商機會自動標記為停滯。
+
+  - id: office-facilities
+    title: 辦公室設施使用須知
+    visibility: org
+    body: |
+      辦公室設施使用須知
+
+      會議室以預約系統登記，單次最長預約 2 小時，逾時 10 分鐘未到自動釋出。
+      訪客須在來訪前一日完成登記，到訪時由接待同仁陪同進入辦公區。
+      停車位數量有限，每季以抽籤方式分配，中籤者當季不得轉讓。
+      門禁卡遺失請立即通報總務停用，補發工本費 200 元。
+      茶水間的冰箱每週五下午清空，未標示姓名的食物會被丟棄。
+
+  - id: legal-contract
+    title: 合約審閱流程
+    grants: [g:employee]
+    body: |
+      合約審閱流程
+
+      使用公司標準範本的保密協議不需要送法務審閱，可以直接簽署。
+      非標準合約的審閱時間為 5 個工作天，急件須由部門主管說明理由。
+      合約金額超過 100 萬元者，須加送法務長核准。
+      公司接受電子簽章，簽署完成的合約由法務統一歸檔。
+      合約編號格式為 CT-年度-流水號，由法務在歸檔時給號。
+
+queries:
+  # --- identifier ---------------------------------------------------------
+  - {id: id-dep-4031, type: identifier, asker: u:erin, question: "DEP-4031 是什麼問題", doc: eng-deploy, contains: "DEP-4031"}
+  - {id: id-e-4031, type: identifier, asker: u:erin, question: "E-4031", doc: eng-api-errors, contains: "E-4031"}
+  - {id: id-e-4092, type: identifier, asker: u:erin, question: "E-4092 是什麼意思", doc: eng-api-errors, contains: "E-4092"}
+  - {id: id-e-4290, type: identifier, asker: u:erin, question: "遇到 E-4290 怎麼辦", doc: eng-api-errors, contains: "E-4290"}
+  - {id: id-sev2, type: identifier, asker: u:erin, question: "SEV2 的定義", doc: eng-incident, contains: "SEV2"}
+  - {id: id-vpn-812, type: identifier, asker: u:alice, question: "VPN-812", doc: it-vpn, contains: "VPN-812"}
+  - {id: id-vpn-809, type: identifier, asker: u:alice, question: "出現 VPN-809 要找誰", doc: it-vpn, contains: "VPN-809"}
+  - {id: id-fin-204, type: identifier, asker: u:alice, question: "FIN-204 是做什麼用的", doc: fin-expense, contains: "FIN-204"}
+  - {id: id-fin-305, type: identifier, asker: u:alice, question: "FIN-305", doc: fin-procurement, contains: "FIN-305"}
+  - {id: id-it-117, type: identifier, asker: u:alice, question: "IT-117 表單", doc: it-device, contains: "IT-117"}
+  - {id: id-it-122, type: identifier, asker: u:alice, question: "什麼時候要填 IT-122", doc: it-software, contains: "IT-122"}
+  - {id: id-hr-330, type: identifier, asker: u:alice, question: "HR-330", doc: hr-remote-work, contains: "HR-330"}
+  - {id: id-sspr, type: identifier, asker: u:alice, question: "SSPR 是什麼", doc: it-password, contains: "SSPR"}
+  - {id: id-hr-410, type: identifier, asker: u:carol, question: "HR-410", doc: hr-offboarding, contains: "HR-410"}
+
+  # --- paraphrase ---------------------------------------------------------
+  - {id: pp-lost-laptop, type: paraphrase, asker: u:alice, question: "電腦在外面不見了該怎麼處理", doc: it-device, contains: "4 小時內通報"}
+  - {id: pp-work-abroad, type: paraphrase, asker: u:alice, question: "我想回日本老家待一個月邊住邊上班可以嗎", doc: hr-remote-work, contains: "海外遠距工作超過 14 天"}
+  - {id: pp-clicked-link, type: paraphrase, asker: u:alice, question: "不小心打開了一封怪信裡的網址怎麼辦", doc: sec-phishing, contains: "立即變更密碼"}
+  - {id: pp-locked-out, type: paraphrase, asker: u:alice, question: "登入失敗太多次被擋住要等多久", doc: it-password, contains: "鎖定 15 分鐘"}
+  - {id: pp-doctor-note, type: paraphrase, asker: u:alice, question: "感冒在家休息幾天以上要拿醫生開的單子", doc: hr-sick-leave, contains: "診斷證明"}
+  - {id: pp-carry-over, type: paraphrase, asker: u:alice, question: "今年沒放完的假明年還能用嗎", doc: hr-annual-leave, contains: "遞延到次年"}
+  - {id: pp-taxi, type: paraphrase, asker: u:alice, question: "拜訪客戶搭小黃的錢可以請款嗎", doc: fin-expense, contains: "計程車"}
+  - {id: pp-appeal, type: paraphrase, asker: u:alice, question: "覺得主管給的評等不公平可以怎麼做", doc: hr-performance, contains: "提出申訴"}
+  - {id: pp-oncall-pay, type: paraphrase, asker: u:erin, question: "週末待命有額外的錢嗎", doc: eng-oncall, contains: "值班津貼"}
+  - {id: pp-night-rest, type: paraphrase, asker: u:erin, question: "凌晨被叫起來修問題隔天可以晚點進公司嗎", doc: eng-oncall, contains: "補休半天"}
+  - {id: pp-rollback, type: paraphrase, asker: u:erin, question: "新版上線後壞掉要怎麼退回去", doc: eng-deploy, contains: "deployctl rollback"}
+  - {id: pp-friday, type: paraphrase, asker: u:erin, question: "禮拜五傍晚可以發版嗎", doc: eng-deploy, contains: "部署凍結期"}
+  - {id: pp-unlisted-tool, type: paraphrase, asker: u:alice, question: "想用一套公司清單裡沒有的工具", doc: it-software, contains: "非白名單軟體"}
+  - {id: pp-three-quotes, type: paraphrase, asker: u:alice, question: "買十萬塊的設備要找幾個供應商報價", doc: fin-procurement, contains: "三家廠商"}
+  - {id: pp-parking, type: paraphrase, asker: u:alice, question: "開車上班有位子可以停嗎", doc: office-facilities, contains: "停車位"}
+  - {id: pp-own-drive, type: paraphrase, asker: u:alice, question: "敏感檔案可以放自己的網路空間嗎", doc: sec-data-classification, contains: "個人雲端硬碟"}
+  - {id: pp-discount, type: paraphrase, asker: u:alice, question: "客戶要打九折我可以自己答應嗎", doc: sales-discount, contains: "業務代表"}
+  - {id: pp-retry, type: paraphrase, asker: u:erin, question: "後端服務沒回應的時候用戶端該重送幾次", doc: eng-api-errors, contains: "最多重試 3 次"}
+
+  # --- plain --------------------------------------------------------------
+  - {id: pl-leave-notice, type: plain, asker: u:alice, question: "特休要提前幾個工作天申請", doc: hr-annual-leave, contains: "提前 3 個工作天"}
+  - {id: pl-meeting-room, type: plain, asker: u:alice, question: "會議室單次最長可以預約多久", doc: office-facilities, contains: "最長預約 2 小時"}
+  - {id: pl-probation, type: plain, asker: u:alice, question: "試用期是幾個月", doc: hr-onboarding, contains: "試用期為 3 個月"}
+  - {id: pl-postmortem, type: plain, asker: u:erin, question: "事後檢討報告要在幾個工作天內完成", doc: eng-incident, contains: "事後檢討報告"}
+  - {id: pl-contract-review, type: plain, asker: u:alice, question: "非標準合約的審閱時間", doc: legal-contract, contains: "非標準合約的審閱時間"}
+  - {id: pl-quote-validity, type: plain, asker: u:alice, question: "報價單的有效期限是幾天", doc: sales-discount, contains: "有效期限為 30 天"}
+  - {id: pl-password-length, type: plain, asker: u:alice, question: "密碼長度至少幾個字元", doc: it-password, contains: "至少 14 個字元"}
+  - {id: pl-crm-update, type: plain, asker: u:alice, question: "客戶往來要在多久內更新到 CRM", doc: sales-crm, contains: "48 小時內"}
+
+  # --- scoped -------------------------------------------------------------
+  - {id: sc-hotel-staff, type: scoped, asker: u:alice, question: "國內出差住宿費每晚上限", doc: fin-travel, contains: "3,200"}
+  - {id: sc-per-diem-staff, type: scoped, asker: u:alice, question: "國內出差日支費一天多少", doc: fin-travel, contains: "每日 800 元"}
+  - {id: sc-hotel-exec, type: scoped, asker: u:bob, question: "經理級出差的住宿費上限", doc: fin-travel-exec, contains: "5,500"}
+  - {id: sc-business-class, type: scoped, asker: u:bob, question: "什麼情況可以搭商務艙", doc: fin-travel-exec, contains: "商務艙"}
+  - {id: sc-grades-staff, type: scoped, asker: u:alice, question: "考核等第分成哪幾級", doc: hr-performance, contains: "四級"}
+  - {id: sc-a-quota, type: scoped, asker: u:bob, question: "A 等的人數比例上限", doc: hr-performance-calibration, contains: "15%"}

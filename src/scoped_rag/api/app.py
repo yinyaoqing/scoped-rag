@@ -20,6 +20,7 @@ from ..answer.providers import ClaudeProvider, FakeProvider
 from ..embed.fake import FakeEmbedder
 from ..ingest.chunk import chunk_text
 from ..ingest.parse import parse_file
+from ..rerank.base import Reranker
 from ..store.repo import Store
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "web"
@@ -31,6 +32,8 @@ def build_app(
     embedder_kind: str = "fake",
     provider_kind: str = "fake",
     max_distance: float = DEFAULT_MAX_DISTANCE,
+    mode: str = "vector",
+    reranker: Reranker | None = None,
 ) -> FastAPI:
     if embedder_kind == "local":
         from ..embed.local import LocalEmbedder
@@ -84,6 +87,8 @@ def build_app(
                 question=question,
                 k=k,
                 max_distance=max_distance,
+                mode=mode,
+                reranker=reranker,
             )
             return templates.TemplateResponse(
                 request,

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from scoped_rag.evaluate import run, write_report
+from scoped_rag.retrieve.search import MODES
 
 CASES = Path("evals/leakage/cases.yaml")
 
@@ -28,7 +31,19 @@ def test_every_family_is_covered():
     }
 
 
-def test_a_broken_predicate_is_caught(monkeypatch):
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("rerank", [False, True])
+def test_no_retrieval_configuration_leaks(mode, rerank):
+    """The guarantee is about the scope, so it has to hold for every way of ranking."""
+    report = run(CASES, mode=mode, rerank=rerank)
+    assert report.leak_rate == 0.0
+    assert report.permitted_recall == 1.0
+    assert report.refusal_correctness == 1.0
+    assert report.passed, report.as_dict()["failures"]
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_a_broken_predicate_is_caught(monkeypatch, mode):
     """Guard the guard: if the access predicate stops filtering, the eval must fail.
 
     Without this, a regression that returns everything to everyone would still show
@@ -40,7 +55,7 @@ def test_a_broken_predicate_is_caught(monkeypatch):
         return "1 = 1", {}
 
     monkeypatch.setattr(search_mod, "readable_predicate", permissive)
-    report = run(CASES)
+    report = run(CASES, mode=mode)
     assert report.leak_rate > 0.0
     assert not report.passed
 

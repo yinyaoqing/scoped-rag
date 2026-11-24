@@ -122,3 +122,24 @@ def test_upload_indexes_a_file(dsn, tmp_path, capsys):
     )
     assert resp.status_code == 200
     assert "出差規定" in resp.text
+
+
+def test_ask_in_hybrid_mode_keeps_the_permission_difference(dsn, capsys):
+    main(["--dsn", dsn, "demo"])
+    capsys.readouterr()
+    common = ["--k", "20", "--mode", "hybrid", "--rerank", "fake"]
+    main(["--dsn", dsn, "ask", "經理級的年度調薪區間是多少", "--as", "u:alice", *common])
+    alice = capsys.readouterr().out
+    main(["--dsn", dsn, "ask", "經理級的年度調薪區間是多少", "--as", "u:bob", *common])
+    bob = capsys.readouterr().out
+    assert "薪資調整級距" not in alice
+    assert "薪資調整級距" in bob
+
+
+def test_reindex_and_eval_quality_commands(dsn, capsys):
+    main(["--dsn", dsn, "demo"])
+    assert main(["--dsn", dsn, "reindex"]) == 0
+    assert "rebuilt the term index" in capsys.readouterr().out
+    assert main(["eval-quality", "--rerank", "fake"]) == 0
+    assert "hybrid+rerank" in capsys.readouterr().out
+    assert main(["eval", "--mode", "hybrid", "--rerank"]) == 0

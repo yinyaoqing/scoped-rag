@@ -12,7 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..embed.base import Embedder
-from ..retrieve.search import Hit, search
+from ..rerank.base import Reranker
+from ..retrieve.search import Hit, retrieve
 from ..store.repo import Store
 from .providers import _LABEL, LlmProvider
 
@@ -70,9 +71,24 @@ def answer_question(
     question: str,
     k: int = 5,
     max_distance: float = DEFAULT_MAX_DISTANCE,
+    mode: str = "vector",
+    reranker: Reranker | None = None,
+    min_rerank: float | None = None,
 ) -> Answer:
-    retrieved = search(store, embedder, asker=asker, query=question, k=k)
-    near = [h for h in retrieved if h.distance <= max_distance]
+    """`mode` and `reranker` choose how the permitted chunks are ranked.
+
+    The relevance gate is the cosine distance unless a re-ranker is in use and
+    `min_rerank` is given, in which case its score decides instead: a cross-encoder
+    judges "does this chunk answer the question" more directly than a distance does.
+    The threshold is model-specific, so it has no default.
+    """
+    retrieved = retrieve(
+        store, embedder, asker=asker, query=question, k=k, mode=mode, reranker=reranker
+    )
+    if reranker is not None and min_rerank is not None:
+        near = [h for h in retrieved if h.rerank is not None and h.rerank >= min_rerank]
+    else:
+        near = [h for h in retrieved if h.distance <= max_distance]
     if not near:
         return Answer(REFUSAL, retrieved=retrieved, refused=True)
 

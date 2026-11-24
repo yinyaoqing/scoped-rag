@@ -48,7 +48,16 @@ def ddl(d: Dialect, dim: int) -> list[str]:
              embedder TEXT NOT NULL,
              dim INTEGER NOT NULL,
              vector {vec} NOT NULL)""",
+        # The keyword leg. Term frequencies only: document frequency and average length
+        # are computed per query over the asker's readable set, never stored corpus-wide
+        # (see docs/decisions/hybrid-and-rerank.md).
+        """CREATE TABLE IF NOT EXISTS chunk_terms (
+             chunk_id TEXT NOT NULL,
+             term TEXT NOT NULL,
+             tf INTEGER NOT NULL,
+             PRIMARY KEY (chunk_id, term))""",
         "CREATE INDEX IF NOT EXISTS idx_chunks_doc ON chunks (document_id)",
         "CREATE INDEX IF NOT EXISTS idx_grants_doc ON grants (document_id)",
         "CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships (user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_chunk_terms_term ON chunk_terms (term)",
     ]

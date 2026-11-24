@@ -1,8 +1,9 @@
 """What differs between SQLite and PostgreSQL, and nothing more.
 
 The access-control predicate, the joins, the ordering and the LIMIT are identical
-SQL on both backends. Only three things change: how a parameter is spelled, how a
-vector is stored and bound, and the expression that measures distance. Keeping the
+SQL on both backends. Only these change: how a parameter is spelled, how a
+vector is stored and bound, the expression that measures distance, and how the
+catalogue is asked whether a table exists. Keeping the
 difference this small is the point -- the permission logic exists once, so the tests
 that prove it does not leak cover the production backend too.
 """
@@ -47,6 +48,14 @@ class Dialect:
         if self.name == "sqlite":
             return struct.pack(f"<{len(vec)}f", *vec)
         return "[" + ",".join(repr(float(x)) for x in vec) + "]"
+
+    def table_exists(self, table: str) -> str:
+        """A query returning a row when the table exists. Asked of the catalogue rather
+        than by trying the table, because a failed statement aborts a PostgreSQL
+        transaction and rolling back would discard the caller's uncommitted work."""
+        if self.name == "sqlite":
+            return f"SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '{table}'"
+        return f"SELECT 1 WHERE to_regclass('{table}') IS NOT NULL"
 
     def distance(self, column: str, key: str) -> str:
         if self.name == "sqlite":
