@@ -4,7 +4,7 @@ import pytest
 
 from scoped_rag.embed.fake import FakeEmbedder
 from scoped_rag.ingest.chunk import chunk_text
-from scoped_rag.store.repo import Store, seed_roles
+from scoped_rag.store.repo import Store, fresh_store, seed_roles
 
 # One small corpus, reused by every test. Three documents with different reach:
 # an org-wide handbook, a leave policy for employees, and a salary band document
@@ -21,8 +21,7 @@ def embedder() -> FakeEmbedder:
 
 @pytest.fixture
 def store(embedder: FakeEmbedder) -> Store:
-    s = Store.open("sqlite://:memory:", dim=embedder.dim)
-    s.init_schema()
+    s = fresh_store(embedder.dim)
     seed_roles(s, departments=["hr"])
     s.add_user("u:alice", "Alice（員工）")
     s.add_user("u:bob", "Bob（經理）")

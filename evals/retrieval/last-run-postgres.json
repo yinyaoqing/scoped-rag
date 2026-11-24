@@ -1,0 +1,231 @@
+{
+  "set": "evals/retrieval/set.yaml",
+  "embedder": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "reranker": "BAAI/bge-reranker-base",
+  "documents": 26,
+  "chunks": 51,
+  "queries": 46,
+  "k": 10,
+  "rerank_pool": 10,
+  "configs": {
+    "vector": {
+      "overall": {
+        "n": 46,
+        "hit@1": 0.6739,
+        "hit@3": 0.913,
+        "hit@k": 1.0,
+        "mrr": 0.8075
+      },
+      "by_type": {
+        "identifier": {
+          "n": 14,
+          "hit@1": 0.8571,
+          "hit@3": 0.8571,
+          "hit@k": 1.0,
+          "mrr": 0.8852
+        },
+        "paraphrase": {
+          "n": 18,
+          "hit@1": 0.5556,
+          "hit@3": 0.9444,
+          "hit@k": 1.0,
+          "mrr": 0.7593
+        },
+        "plain": {
+          "n": 8,
+          "hit@1": 0.75,
+          "hit@3": 1.0,
+          "hit@k": 1.0,
+          "mrr": 0.8542
+        },
+        "scoped": {
+          "n": 6,
+          "hit@1": 0.5,
+          "hit@3": 0.8333,
+          "hit@k": 1.0,
+          "mrr": 0.7083
+        }
+      },
+      "misses": [],
+      "leaks": [],
+      "ms_per_query": 11.4
+    },
+    "keyword": {
+      "overall": {
+        "n": 46,
+        "hit@1": 0.6739,
+        "hit@3": 0.7391,
+        "hit@k": 0.8261,
+        "mrr": 0.7202
+      },
+      "by_type": {
+        "identifier": {
+          "n": 14,
+          "hit@1": 1.0,
+          "hit@3": 1.0,
+          "hit@k": 1.0,
+          "mrr": 1.0
+        },
+        "paraphrase": {
+          "n": 18,
+          "hit@1": 0.1667,
+          "hit@3": 0.3333,
+          "hit@k": 0.5556,
+          "mrr": 0.2849
+        },
+        "plain": {
+          "n": 8,
+          "hit@1": 1.0,
+          "hit@3": 1.0,
+          "hit@k": 1.0,
+          "mrr": 1.0
+        },
+        "scoped": {
+          "n": 6,
+          "hit@1": 1.0,
+          "hit@3": 1.0,
+          "hit@k": 1.0,
+          "mrr": 1.0
+        }
+      },
+      "misses": [
+        "pp-clicked-link",
+        "pp-locked-out",
+        "pp-oncall-pay",
+        "pp-rollback",
+        "pp-friday",
+        "pp-unlisted-tool",
+        "pp-parking",
+        "pp-own-drive"
+      ],
+      "leaks": [],
+      "ms_per_query": 16.6
+    },
+    "hybrid": {
+      "overall": {
+        "n": 46,
+        "hit@1": 0.7391,
+        "hit@3": 0.913,
+        "hit@k": 1.0,
+        "mrr": 0.8328
+      },
+      "by_type": {
+        "identifier": {
+          "n": 14,
+          "hit@1": 0.8571,
+          "hit@3": 1.0,
+          "hit@k": 1.0,
+          "mrr": 0.9286
+        },
+        "paraphrase": {
+          "n": 18,
+          "hit@1": 0.4444,
+          "hit@3": 0.7778,
+          "hit@k": 1.0,
+          "mrr": 0.6283
+        },
+        "plain": {
+          "n": 8,
+          "hit@1": 1.0,
+          "hit@3": 1.0,
+          "hit@k": 1.0,
+          "mrr": 1.0
+        },
+        "scoped": {
+          "n": 6,
+          "hit@1": 1.0,
+          "hit@3": 1.0,
+          "hit@k": 1.0,
+          "mrr": 1.0
+        }
+      },
+      "misses": [],
+      "leaks": [],
+      "ms_per_query": 28.5
+    },
+    "vector+rerank": {
+      "overall": {
+        "n": 46,
+        "hit@1": 0.8043,
+        "hit@3": 0.9783,
+        "hit@k": 1.0,
+        "mrr": 0.8877
+      },
+      "by_type": {
+        "identifier": {
+          "n": 14,
+          "hit@1": 0.9286,
+          "hit@3": 1.0,
+          "hit@k": 1.0,
+          "mrr": 0.9643
+        },
+        "paraphrase": {
+          "n": 18,
+          "hit@1": 0.5556,
+          "hit@3": 0.9444,
+          "hit@k": 1.0,
+          "mrr": 0.7407
+        },
+        "plain": {
+          "n": 8,
+          "hit@1": 1.0,
+          "hit@3": 1.0,
+          "hit@k": 1.0,
+          "mrr": 1.0
+        },
+        "scoped": {
+          "n": 6,
+          "hit@1": 1.0,
+          "hit@3": 1.0,
+          "hit@k": 1.0,
+          "mrr": 1.0
+        }
+      },
+      "misses": [],
+      "leaks": [],
+      "ms_per_query": 386.5
+    },
+    "hybrid+rerank": {
+      "overall": {
+        "n": 46,
+        "hit@1": 0.8261,
+        "hit@3": 0.9783,
+        "hit@k": 1.0,
+        "mrr": 0.8986
+      },
+      "by_type": {
+        "identifier": {
+          "n": 14,
+          "hit@1": 0.9286,
+          "hit@3": 1.0,
+          "hit@k": 1.0,
+          "mrr": 0.9643
+        },
+        "paraphrase": {
+          "n": 18,
+          "hit@1": 0.6111,
+          "hit@3": 0.9444,
+          "hit@k": 1.0,
+          "mrr": 0.7685
+        },
+        "plain": {
+          "n": 8,
+          "hit@1": 1.0,
+          "hit@3": 1.0,
+          "hit@k": 1.0,
+          "mrr": 1.0
+        },
+        "scoped": {
+          "n": 6,
+          "hit@1": 1.0,
+          "hit@3": 1.0,
+          "hit@k": 1.0,
+          "mrr": 1.0
+        }
+      },
+      "misses": [],
+      "leaks": [],
+      "ms_per_query": 379.2
+    }
+  }
+}

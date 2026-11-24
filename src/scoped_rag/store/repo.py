@@ -17,6 +17,10 @@ from .dialect import POSTGRES, SQLITE, Dialect, cosine_distance
 from .schema import ADMIN_GROUP, ddl
 
 DEFAULT_DSN = "sqlite:///scoped_rag.sqlite3"
+TABLES = ("chunk_terms", "embeddings", "chunks", "grants", "documents", "memberships", "principals")
+# Set to a PostgreSQL DSN to run the test suite and both evals against the production
+# backend instead of in-memory SQLite. The database is emptied for every store.
+TEST_DSN_ENV = "SCOPED_RAG_TEST_DSN"
 
 
 @dataclass(frozen=True)
@@ -78,6 +82,13 @@ class Store:
             self.execute("CREATE EXTENSION IF NOT EXISTS vector")
         for statement in ddl(self.d, self.dim):
             self.execute(statement)
+        self.conn.commit()
+
+    def drop_schema(self) -> None:
+        """Remove every table. For tests and evals that need an empty database on a
+        server that outlives the process."""
+        for table in TABLES:
+            self.execute(f"DROP TABLE IF EXISTS {table}")
         self.conn.commit()
 
     def commit(self) -> None:
@@ -295,3 +306,14 @@ def seed_roles(store: Store, departments: Iterable[str] = ()) -> None:
     store.add_group("g:employee", "員工")
     for dept in departments:
         store.add_group(f"g:{dept}", dept)
+
+
+def fresh_store(dim: int) -> Store:
+    """An empty store with the schema in place: in-memory SQLite, or the database
+    named by SCOPED_RAG_TEST_DSN."""
+    dsn = os.environ.get(TEST_DSN_ENV)
+    store = Store.open(dsn or "sqlite://:memory:", dim=dim)
+    if dsn:
+        store.drop_schema()
+    store.init_schema()
+    return store

@@ -24,7 +24,7 @@ from .answer.providers import FakeProvider
 from .embed.fake import FakeEmbedder
 from .ingest.chunk import chunk_text
 from .rerank.fake import FakeReranker
-from .store.repo import Store, seed_roles
+from .store.repo import Store, fresh_store, seed_roles
 
 
 @dataclass
@@ -73,8 +73,7 @@ def _build(
 ) -> Store:
     """A fresh in-memory store from an eval spec. A document's text comes from `body`
     when given inline, otherwise from `file`."""
-    store = Store.open("sqlite://:memory:", dim=embedder.dim)
-    store.init_schema()
+    store = fresh_store(embedder.dim)
     seed_roles(store)
     for gid, name in (spec.get("groups") or {}).items():
         store.add_group(gid, name)

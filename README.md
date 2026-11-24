@@ -122,6 +122,13 @@ uv run pytest            # 65 個測試，全離線，不需 API key 也不需�
 uv run ruff check .
 ```
 
+同一套測試與兩個評測可以改指向 PostgreSQL 執行（每個 store 建立前會清空該資料庫，請用專門的測試庫）：
+
+```bash
+uv sync --group dev --extra pg
+SCOPED_RAG_TEST_DSN=postgresql://USER:PASSWORD@127.0.0.1:5432/scoped_rag_test uv run pytest
+```
+
 其中幾個值得一看：`test_hidden_documents_do_not_move_visible_scores` 確認隱藏文件不會改變可見文件的 BM25 分數；`test_filter_runs_before_ranking` 對任何「先檢索後過濾」的實作都會失敗；`test_a_broken_predicate_is_caught` 把權限謂詞換成全放行，確認評測真的會抓到——否則一個讓所有人看到所有文件的回歸，也會顯示 `leak_rate` 0。
 
 ---
